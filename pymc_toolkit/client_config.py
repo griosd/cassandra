@@ -357,7 +357,8 @@ class ClientConfig:
         if self.target_scaler is None: 
             self.target_scale_value = 1.0
         else:
-            self.target_scale_value = float(self.target_scaler.max_abs_)
+            val = self.target_scaler.max_abs_
+            self.target_scale_value = float(np.asarray(val).reshape(-1)[0])
 
     def _get_calibration_input_for_pymc(self, calibration_tests, channel_scales):
         """
