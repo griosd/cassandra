@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.preprocessing import MaxAbsScaler
-from cassandra.pymc_toolkit import get_all_zero_columns, get_media_with_negatives
+from pymc_toolkit.utils import get_all_zero_columns, get_media_with_negatives
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)

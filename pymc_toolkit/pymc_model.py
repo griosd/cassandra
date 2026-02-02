@@ -15,9 +15,9 @@ from pymc_marketing.mmm import (
     WeibullPDFAdstock,
 )
 
-from cassandra.pymc_toolkit.client_config import ClientConfig
-from cassandra.pymc_toolkit.fleet_result import FleetResult
-from cassandra.pymc_toolkit import rolling_split, recovery_summary  # noqa: F401 (si no lo usas, bórralo)
+from pymc_toolkit.client_config import ClientConfig
+from pymc_toolkit.fleet_result import FleetResult
+from pymc_toolkit.utils import rolling_split, recovery_summary  # noqa: F401 (si no lo usas, bórralo)
 
 logger = logging.getLogger(__name__)
 

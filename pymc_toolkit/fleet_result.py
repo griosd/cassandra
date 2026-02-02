@@ -8,7 +8,7 @@ from pymc_marketing.mmm import MMM
 from typing import Dict, Union, Optional
 from pymc_marketing.mmm.evaluation import calculate_metric_distributions
 
-from cassandra.pymc_toolkit import (plot_roas,
+from pymc_toolkit.utils import (plot_roas,
                                     crps_accuracy,
                                     recovery_percentage,
                                     coverage_percentage,
