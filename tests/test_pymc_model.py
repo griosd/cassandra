@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 
 from pymc_marketing.mmm import MMM
-from cassandra.pymc_toolkit.client_config import ClientConfig
-from cassandra.pymc_toolkit.pymc_model import PymcModel, SaturationType, AdstockType
+from ..pymc_toolkit.client_config import ClientConfig
+from ..pymc_toolkit.pymc_model import PymcModel, SaturationType, AdstockType
 
 @pytest.fixture
 def sample_data():

@@ -4,7 +4,7 @@ import arviz as az
 import pandas as pd
 from unittest.mock import MagicMock
  
-from cassandra.pymc_toolkit import (crps_accuracy,
+from ..pymc_toolkit.utils import (crps_accuracy,
                                     compute_coverage,
                                     coverage_percentage,
                                     recovery_percentage,
