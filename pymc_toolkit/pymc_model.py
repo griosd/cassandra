@@ -8,12 +8,12 @@ from enum import Enum
 from pymc_extras.prior import Prior
 from typing import Optional, Dict, Union, List
 from pymc_marketing.hsgp_kwargs import HSGPKwargs
-from cassandra.pymc_toolkit.fleet_result import FleetResult
-from cassandra.pymc_toolkit.client_config import ClientConfig
+from pymc_toolkit.fleet_result import FleetResult
+from pymc_toolkit.client_config import ClientConfig
 from pymc_marketing.mmm import MichaelisMentenSaturation, LogisticSaturation
 from pymc_marketing.mmm import MMM, GeometricAdstock, HillSaturation, WeibullPDFAdstock
 
-from cassandra.pymc_toolkit import (rolling_split,
+from pymc_toolkit.utils import (rolling_split,
                                     recovery_summary)
 
 logger = logging.getLogger(__name__)

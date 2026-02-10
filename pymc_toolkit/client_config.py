@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.preprocessing import MaxAbsScaler
-from cassandra.pymc_toolkit import get_all_zero_columns, get_media_with_negatives
+from pymc_toolkit.utils import get_all_zero_columns, get_media_with_negatives
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -357,7 +357,9 @@ class ClientConfig:
         if self.target_scaler is None: 
             self.target_scale_value = 1.0
         else:
-            self.target_scale_value = float(self.target_scaler.max_abs_)
+            # Robust function
+            max_abs = self.target_scaler.max_abs_
+            self.target_scale_value = float(max_abs.item()) if max_abs.size == 1 else max_abs.astype(float)
 
     def _get_calibration_input_for_pymc(self, calibration_tests, channel_scales):
         """
