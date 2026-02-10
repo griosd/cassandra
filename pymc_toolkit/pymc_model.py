@@ -126,17 +126,16 @@ class PymcModel:
       adstock: Union[str, AdstockType] = AdstockType.GEOMETRIC,
       number_of_basis: int = 50,
       time_varying_media: bool = False,
-      time_varying_intercept: bool = False):
-      # --- EVENTS (optional) ---
-      df_events: Optional[pd.DataFrame] = None
+      time_varying_intercept: bool = False,
+      df_events = None,
       events_basis: Union[str, EventBumpsBasis] = EventBumpsBasis.GAUSSIAN,
       events_sigma_days: float = 7.0,
       events_half_mode: Union[str, HalfGaussianMode] = HalfGaussianMode.AFTER,
       events_sigma_before_days: float = 7.0,
       events_sigma_after_days: float = 14.0,
       events_prefix: str = "event",
-      events_reference_date: Optional[str] = None,
-      logger.info("Creating the client's data configuration.")
+      events_reference_date = None):
+
       self.client_configuration = ClientConfig(
           client_data=client_data,
           channel_names=channel_names,
@@ -232,16 +231,16 @@ class PymcModel:
       # Events
       # =============================================================================
 
-      @staticmethod
-      def _coerce_enum(value, enum_cls):
-          if isinstance(value, enum_cls):
-              return value
-          elif isinstance(value, str):
-              try:
-                  return enum_cls(value.lower())
-              except Exception:
-                  pass
-              raise ValueError(f"Invalid value '{value}' for {enum_cls.__name__}")
+    @staticmethod
+    def _coerce_enum(value, enum_cls):
+        if isinstance(value, enum_cls):
+            return value
+        elif isinstance(value, str):
+            try:
+                return enum_cls(value.lower())
+            except Exception:
+                pass
+            raise ValueError(f"Invalid value '{value}' for {enum_cls.__name__}")
 
     def _inject_event_features(
             self,
