@@ -2,10 +2,10 @@ import pytest
 import numpy as np
 import pandas as pd
 
-from cassandra.pymc_toolkit.pymc_model import PymcModel
-from cassandra.pymc_toolkit.fleet_result import FleetResult
+from ..pymc_toolkit.pymc_model import PymcModel
+from ..pymc_toolkit.fleet_result import FleetResult
 
-from cassandra.pymc_toolkit import simulate_spend_channels
+from ..pymc_toolkit.utils import simulate_spend_channels
 
 @pytest.fixture
 def sample_data():

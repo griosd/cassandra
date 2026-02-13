@@ -1,5 +1,6 @@
 import pandas as pd
-from cassandra.pymc_toolkit.pymc_model import PymcModel
+from pymc_toolkit.pymc_model import PymcModel
+
 
 data = pd.read_csv('data/Poseidon.csv')
 

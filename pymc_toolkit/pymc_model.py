@@ -5,15 +5,17 @@ import pandas as pd
 import xarray as xr
 
 from enum import Enum
+
+from numba.core.transforms import with_lifting
 from pymc_extras.prior import Prior
-from typing import Optional, Dict, Union, List
+from typing import Optional, Tuple, Dict, Union, List
 from pymc_marketing.hsgp_kwargs import HSGPKwargs
-from cassandra.pymc_toolkit.fleet_result import FleetResult
-from cassandra.pymc_toolkit.client_config import ClientConfig
+from pymc_toolkit.fleet_result import FleetResult
+from pymc_toolkit.client_config import ClientConfig
 from pymc_marketing.mmm import MichaelisMentenSaturation, LogisticSaturation
 from pymc_marketing.mmm import MMM, GeometricAdstock, HillSaturation, WeibullPDFAdstock
 
-from cassandra.pymc_toolkit import (rolling_split,
+from pymc_toolkit.utils import (rolling_split,
                                     recovery_summary)
 
 logger = logging.getLogger(__name__)
@@ -27,11 +29,55 @@ class AdstockType(Enum):
     GEOMETRIC = "geometric"
     WEIBULL_PDF = "weibull_pdf"
 
+class EventBumpsBasis(Enum):
+    """How to convert events to numeric features."""
+    GAUSSIAN = "gaussian"
+    HALF_GAUSSIAN = "half_gaussian"
+    ASYMMETRIC_GAUSSIAN = "asymmetric_gaussian"
+
+class HalfGaussianMode(Enum):
+    """Which side keeps mass for half-gaussian basis."""
+    AFTER = "after"
+    BEFORE = "before"
+
+# =============================================================================
+# Event feature builders (pure numpy)
+# =============================================================================
+
+def _gaussian_bump(x: np.ndarray, sigma: float) -> np.ndarray:
+    """exp(-0.5*(x/sigma)^2) — unnormalized gaussian bump."""
+    sigma = max(float(sigma), 1e-6)
+    return np.exp(-0.5 * (x / sigma) ** 2)
+
+
+def _half_gaussian_bump(x: np.ndarray, sigma: float, mode: HalfGaussianMode) -> np.ndarray:
+    out = _gaussian_bump(x, sigma)
+    if mode == HalfGaussianMode.AFTER:
+        return np.where(x >= 0, out, 0.0)
+    if mode == HalfGaussianMode.BEFORE:
+        return np.where(x <= 0, out, 0.0)
+    raise ValueError("mode must be HalfGaussianMode.AFTER or HalfGaussianMode.BEFORE")
+
+
+def _asymmetric_gaussian_bump(x: np.ndarray, sigma_before: float, sigma_after: float) -> np.ndarray:
+    sigma_before = max(float(sigma_before), 1e-6)
+    sigma_after = max(float(sigma_after), 1e-6)
+    out = np.empty_like(x, dtype=float)
+    mask = x < 0
+    out[mask] = np.exp(-0.5 * (x[mask] / sigma_before) ** 2)
+    out[~mask] = np.exp(-0.5 * (x[~mask] / sigma_after) ** 2)
+    return out
+
+
+# =============================================================================
+# Main class
+# =============================================================================
+
 class PymcModel:
     """
     Class to generate Media Mix Models (MMM) in PyMC with support for
     prior configuration, saturation functions, and adstock functions.
-    
+
     Parameters
     ----------
     client_data : pd.DataFrame
@@ -69,7 +115,7 @@ class PymcModel:
       client_data: pd.DataFrame,
       channel_names: List[str],
       date_column: str = "ds",
-      control_names: Optional[List[str]] = None, 
+      control_names: Optional[List[str]] = None,
       target_name: str = "y",
       client_name: Optional[str] = None,
       lag_max: int = 1,
@@ -80,9 +126,17 @@ class PymcModel:
       adstock: Union[str, AdstockType] = AdstockType.GEOMETRIC,
       number_of_basis: int = 50,
       time_varying_media: bool = False,
-      time_varying_intercept: bool = False):
+      time_varying_intercept: bool = False,
+      df_events = None,
+      events_basis: Union[str, EventBumpsBasis] = EventBumpsBasis.GAUSSIAN,
+      events_sigma_days: float = 7.0,
+      events_half_mode: Union[str, HalfGaussianMode] = HalfGaussianMode.AFTER,
+      events_sigma_before_days: float = 7.0,
+      events_sigma_after_days: float = 14.0,
+      events_prefix: str = "event",
+      events_reference_date = None):
 
-      logger.info("Creating the client's data configuration.")  
+      logger.info("Creating the client's data configuration.")
       self.client_configuration = ClientConfig(
           client_data=client_data,
           channel_names=channel_names,
@@ -91,11 +145,31 @@ class PymcModel:
           target_name=target_name,
           date_column=date_column,
           lag_max=lag_max,
-          scale_data=scale_data, 
-          client_name=client_name)
+          scale_data=scale_data,
+          client_name=client_name,
+      )
+
+      # ---------------------------------------------------------------------
+      # Inject event features BEFORE building ClientConfig
+      # ---------------------------------------------------------------------
+      if df_events is not None and len(df_events) > 0:
+          client_data, control_names = self._inject_event_features(
+              client_data=client_data,
+              control_names=control_names,
+              df_events=df_events,
+              date_column=date_column,
+              basis=events_basis,
+              sigma_days=events_sigma_days,
+              half_mode=events_half_mode,
+              sigma_before_days=events_sigma_before_days,
+              sigma_after_days=events_sigma_after_days,
+              prefix=events_prefix,
+              reference_date=events_reference_date,
+          )
+
 
       # define the model's variable
-      logger.info("Set up PyMCModel's basic configuration.")  
+      logger.info("Set up PyMCModel's basic configuration.")
       self.number_of_basis = number_of_basis
       self.time_varying_media = time_varying_media
       self.lag_max = self.client_configuration.lag_max
@@ -106,25 +180,25 @@ class PymcModel:
       self.control_columns = self.client_configuration.control_names
       self.lift_tests = self.client_configuration.calibration_inputs
 
-      # Store the sampled MMM  
+      # Store the sampled MMM
       self.model_fit = None
       self.has_lift_tests = False if self.lift_tests is None else True
 
       # define model variables and priors
-      logger.info("Define PymcModel's default priors.")  
+      logger.info("Define PymcModel's default priors.")
       self.model_variables = ['y_sigma','intercept']
 
-      logger.info("Creating default priors for intercept and model's scale (y_sigma).")  
+      logger.info("Creating default priors for intercept and model's scale (y_sigma).")
       self.model_priors = {
         "intercept":Prior("HalfNormal",sigma=1),
         'likelihood':Prior("Normal",sigma=Prior("HalfNormal",sigma=2))
       }
-      
+
       if self.control_columns:
-        logger.info("Creating default priors for gamma control.")  
+        logger.info("Creating default priors for gamma control.")
         self.model_variables.append('gamma_control')
         self.model_priors["gamma_control"]=Prior("HalfNormal",sigma=1,dims="control")
-      
+
       self._set_adstock(adstock)
       self._set_saturation(saturation)
       self._set_time_varying_model()
@@ -136,13 +210,114 @@ class PymcModel:
           self.model_priors.update(priors)
         except Exception as e:
           logger.error(f"Error updating priors: {e}", exc_info=True)
-    
+
     def __repr__(self):
       return (
         f"PyMC Media Mix Model(client_name='{self.client_configuration.client_name}', "
         f"Adstock={self.adstock_type}, "
         f"Saturation={self.saturation_type.value})")
-      
+
+      # =============================================================================
+      # Events
+      # =============================================================================
+
+    @staticmethod
+    def _coerce_enum(value, enum_cls):
+        if isinstance(value, enum_cls):
+            return value
+        elif isinstance(value, str):
+            try:
+                return enum_cls(value.lower())
+            except Exception:
+                pass
+            raise ValueError(f"Invalid value '{value}' for {enum_cls.__name__}")
+
+    def _inject_event_features(
+            self,
+            client_data: pd.DataFrame,
+            control_names: Optional[List[str]],
+            df_events: pd.DataFrame,
+            date_column: str,
+            basis: Union[str, EventBumpsBasis],
+            sigma_days: float,
+            half_mode: Union[str, HalfGaussianMode],
+            sigma_before_days: float,
+            sigma_after_days: float,
+            prefix: str,
+            reference_date: Optional[str],
+      ) -> Tuple[pd.DataFrame, List[str]]:
+          """
+          Convert df_events into numeric regressors (control columns).
+
+          Expected df_events columns: name, start_date, end_date
+
+          Strategy (simple and robust):
+          - Compute a time index in DAYS from a reference date.
+          - For each event, use the midpoint of its [start_date, end_date] as center.
+          - Create a bump-shaped covariate based on basis.
+          """
+          required = {"name", "start_date", "end_date"}
+          try:
+              missing = required.difference(df_events.columns)
+              if missing:
+                  logger.error(f"df_events is missing columns {missing}. Required: {required}")
+                  return pd.DataFrame(), []
+          except Exception as e:
+              logger.exception("Unexpected error while validating df_events")
+              return  pd.DataFrame(), []
+          basis = self._coerce_enum(basis, EventBumpsBasis)
+          half_mode = self._coerce_enum(half_mode, HalfGaussianMode)
+
+          data = client_data.copy()
+          data[date_column] = pd.to_datetime(data[date_column])
+
+          ev = df_events.copy()
+          ev["start_date"] = pd.to_datetime(ev["start_date"])
+          ev["end_date"] = pd.to_datetime(ev["end_date"])
+
+          ref = pd.to_datetime(reference_date) if reference_date else data[date_column].min()
+          t_days = (data[date_column] - ref).dt.days.values.astype(float)
+
+          new_controls: List[str] = []
+
+          for _, row in ev.iterrows():
+              raw_name = str(row["name"]).strip()
+              safe_name = raw_name.replace(" ", "_")
+
+              start = row["start_date"]
+              end = row["end_date"]
+
+              # center of event window
+              center = start + (end - start) / 2
+              center_days = float((pd.to_datetime(center) - ref).days)
+
+              x = t_days - center_days  # days from event center
+
+              col = f"{prefix}_{safe_name}"
+
+              if basis == EventBumpsBasis.GAUSSIAN:
+                  values = _gaussian_bump(x, sigma_days)
+              elif basis == EventBumpsBasis.HALF_GAUSSIAN:
+                  values = _half_gaussian_bump(x, sigma_days, mode=half_mode)
+              elif basis == EventBumpsBasis.ASYMMETRIC_GAUSSIAN:
+                  values = _asymmetric_gaussian_bump(x, sigma_before_days, sigma_after_days)
+              else:
+                  raise ValueError("Unsupported EventBumpsBasis")
+
+              data[col] = values
+              new_controls.append(col)
+
+          if control_names is None:
+              control_names = []
+          control_names = list(control_names) + new_controls
+
+          logger.info(f"Injected {len(new_controls)} event feature(s) into controls: {new_controls}")
+          return data, control_names
+
+      # =============================================================================
+      # Saturation / Adstock / TVP
+      # =============================================================================
+
     def _set_saturation(self, saturation: Union[str, SaturationType]):
       """Internal helper to set saturation function and related priors."""
       if isinstance(saturation, str):
@@ -246,7 +421,8 @@ class PymcModel:
         self.model_variables.append('intercept_baseline')
         self.model_variables.append('intercept_temporal_latent_multiplier_raw_eta')
         self.model_variables.append('intercept_temporal_latent_multiplier_raw_ls')
-        logger.info("Creating default priors for Kernel's eta and length-scale.") 
+        logger.info("Creating default priors for Kernel's eta and length-scale.")
+
 
     def _validate_prediction_input(self, X_new: pd.DataFrame) -> None:
       """

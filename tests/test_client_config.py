@@ -2,7 +2,7 @@ import pytest
 import logging
 import numpy as np
 import pandas as pd
-from cassandra.pymc_toolkit.client_config import ClientConfig
+from ..pymc_toolkit.client_config import ClientConfig
 
 @pytest.fixture
 def dummy_df():

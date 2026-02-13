@@ -2,8 +2,8 @@ import pytest
 import numpy as np
 import pandas as pd
 from unittest.mock import MagicMock
-from cassandra.pymc_toolkit import rolling_split
-from cassandra.pymc_toolkit.fleet_result import FleetResult
+from ..pymc_toolkit.utils import rolling_split
+from ..pymc_toolkit.fleet_result import FleetResult
 
 @pytest.fixture
 def dummy_mmm():
