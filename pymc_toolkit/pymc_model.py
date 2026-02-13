@@ -136,6 +136,7 @@ class PymcModel:
       events_prefix: str = "event",
       events_reference_date = None):
 
+      logger.info("Creating the client's data configuration.")
       self.client_configuration = ClientConfig(
           client_data=client_data,
           channel_names=channel_names,
@@ -145,7 +146,8 @@ class PymcModel:
           date_column=date_column,
           lag_max=lag_max,
           scale_data=scale_data,
-          client_name=client_name)
+          client_name=client_name,
+      )
 
       # ---------------------------------------------------------------------
       # Inject event features BEFORE building ClientConfig
@@ -165,18 +167,6 @@ class PymcModel:
               reference_date=events_reference_date,
           )
 
-      logger.info("Creating the client's data configuration.")
-      self.client_configuration = ClientConfig(
-          client_data=client_data,
-          channel_names=channel_names,
-          control_names=control_names,
-          calibrations=calibrations,
-          target_name=target_name,
-          date_column=date_column,
-          lag_max=lag_max,
-          scale_data=scale_data,
-          client_name=client_name,
-      )
 
       # define the model's variable
       logger.info("Set up PyMCModel's basic configuration.")
